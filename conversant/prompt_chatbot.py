@@ -20,9 +20,48 @@ import conversant
 from conversant.chatbot import Chatbot, Interaction
 from conversant.prompts.chat_prompt import ChatPrompt
 from conversant.prompts.prompt import Prompt
+co = cohere.Client(os.environ["COHERE_API_KEY"]); 
+# Load the dataset to a dataframe
+# sentence query , topic intent
+#
+from pathlib import Path
+import pandas as pd
+import numpy as np
+HERE = Path(__file__).absolute().parent
+
+df_orig = pd.read_csv(HERE / "andrej.csv")
+is_lex = df_orig["speaker"].str.startswith("Lex")
+df = pd.concat([
+    df_orig[is_lex].rename(columns={"speech": "query"}).reset_index()[["query", "document"]],
+    df_orig[~is_lex].rename(columns={"speech": "intent"}).drop(columns=["speaker"]).reset_index()[["intent"]]
+], axis=1).sort_index()
+
+# Get text embeddings
+def get_embeddings(texts,model='multilingual-22-12'):
+    output = co.embed(
+                    model=model,
+                    texts=texts)
+    return output.embeddings
+
+df['intent_embeds'] = get_embeddings(df['intent'].tolist())
+
+def get_similarity(target,candidates):
+    # Turn list into array
+    candidates = np.array(candidates)
+    target = np.expand_dims(np.array(target),axis=0)
+
+    sim = np.array([np.dot(target, candidate) for candidate in candidates])
+    sim = np.squeeze(sim).tolist()
+    sort_index = np.argsort(sim)[::-1]
+    sort_score = [sim[i] for i in sort_index]
+    similarity_scores = zip(sort_index,sort_score)
+
+    # Return similarity scores
+    return similarity_scores
+
 
 MAX_GENERATE_TOKENS = 2048
-TOKENS_PER_REQUEST = 10
+TOKENS_PER_REQUEST = 100
 PERSONA_MODEL_DIRECTORY = f"{os.path.dirname(conversant.__file__)}/personas"
 PERSONA_JSON_SCHEMA = {
     "type": "object",
@@ -188,7 +227,7 @@ class PromptChatbot(Chatbot):
             "tokens"
         )
 
-    def _dispatch_concurrent_generate_call(self, **kwargs) -> Future:
+    def _dispatch_concurrent_generate_call(self, query, **kwargs) -> Future:
         """Dispatches a concurrent call to co.generate.
 
         This allows a network bound co.generate call to proceed while also
@@ -202,7 +241,7 @@ class PromptChatbot(Chatbot):
                 co.generate.
         """
         with ThreadPoolExecutor(max_workers=1) as exe:
-            future = exe.submit(self.co.generate, **kwargs)
+            future = exe.submit(self.reply, query, True, **kwargs)
         return future
 
     def get_stop_seq(self, response: str) -> str:
@@ -280,6 +319,7 @@ class PromptChatbot(Chatbot):
         # As soon as the function is called (and the generator is created), dispatch
         # a concurrent call to co.generate
         future = self._dispatch_concurrent_generate_call(
+            query,
             model=self.client_config["model"],
             prompt=current_prompt,
             max_tokens=TOKENS_PER_REQUEST,
@@ -368,6 +408,7 @@ class PromptChatbot(Chatbot):
                 # later accessed on the next iteration of the generator.
                 if num_requests_made < max_requests and not reply_complete:
                     future = self._dispatch_concurrent_generate_call(
+                        query,
                         model=self.client_config["model"],
                         prompt=current_prompt,
                         max_tokens=TOKENS_PER_REQUEST,
@@ -379,7 +420,7 @@ class PromptChatbot(Chatbot):
 
                 yield response_before_current, response_so_far
 
-    def reply(self, query: str) -> Interaction:
+    def reply(self, query: str, partial=False, **kwargs) -> Interaction:
         """Replies to a query given a chat history.
 
         The reply is then generated directly from a call to a LLM.
@@ -389,38 +430,74 @@ class PromptChatbot(Chatbot):
 
         Returns:
             Interaction: Dictionary of query and generated LLM response
-        """
+        """      
+        co = self.co
+        
+        def query_tech_trends(new_query, verbose=False):
+        #new_query = "Does Dalibor like guns?"
+            initial_statement ="\ncontext: \n"
+            prompt= "based on the context above, "
+            result = []*51
+            generate = []
 
-        current_prompt = self.generate_prompt_update_examples(query)
+            # Get embeddings of the new query
+            new_query_embeds = get_embeddings([new_query])[0]
+            embeds = np.array(df['intent_embeds'].tolist())
 
-        # Make a call to Cohere's co.generate API
-        generated_object = self.co.generate(
-            model=self.client_config["model"],
-            prompt=current_prompt,
-            max_tokens=self.client_config["max_tokens"],
-            temperature=self.client_config["temperature"],
-            frequency_penalty=self.client_config["frequency_penalty"],
-            presence_penalty=self.client_config["presence_penalty"],
-            stop_sequences=self.client_config["stop_sequences"],
+            # Get the similarity between the search query and existing queries
+            similarity = get_similarity(new_query_embeds,embeds)
+
+            # View the top 50 best result with the embedings
+            if verbose: 
+                print('Result of the embeddings Query:')
+                print(new_query,'\n')
+
+            for i, (idx,sim) in enumerate(similarity):
+                if i > 50:
+                    break
+                result.append(df.iloc[idx]['intent'])
+                if verbose: 
+                    print("context:", df.iloc[idx]['intent'])
+            if verbose: 
+                print('\n\n\n') 
+
+            #use rerank top filter out the top 10 answers
+            if verbose:
+                print('Result of rerank:')
+                print(new_query,'\n')
+            rerank_results = co.rerank(query=new_query,documents=result,top_n=10)
+            if verbose:
+                for i in  range(9):
+                    print("context:",rerank_results[i].document['text'])
+                print('\n\n\n') 
+            #takes the the top 10 result from rerank and formats it
+            generate = "\n".join((result.document["text"].strip() for result in rerank_results))
+
+            generate_input = f"{initial_statement}{generate}\n\n{prompt}{new_query}\nif the context above does not include the answer, then say: 'Sorry, I could not find the answer to that'"
+
+            # pass the top 10 result through generate to get a more formated answer
+            response = generated_object = co.generate(
+                model='command-xlarge-nightly',
+                prompt=generate_input,
+                max_tokens=150,
+                temperature=0.5,
+                k=0,
+                p=0.75,
+                frequency_penalty=0,
+                presence_penalty=0,
+                stop_sequences=[],
         )
-        # If response was cut off by .generate() finding a stop sequence,
-        # remove that sequence from the response.
-        response = generated_object.generations[0].text
-        for stop_seq in self.client_config["stop_sequences"]:
-            if response.endswith(stop_seq):
-                response = response[: -len(stop_seq)]
-        response = response.lstrip()
+            if verbose:
+                print('Result using generate:') 
+                print(generate_input, "\n")
+                print('Prediction: {}'.format(response.generations[0].text))
+            if partial:
+                return generated_object
+            else:
+                response = generated_object.generations[0].text
+                return response
 
-        # We need to remember the current response in the chat history for future
-        # responses.
-        self.chat_history.append(self.prompt.create_interaction(query, response))
-        self.prompt_size_history.append(
-            self.co.tokenize(
-                self.prompt.create_interaction_string(query, response)
-            ).length
-        )
-        self.prompt_history.append(current_prompt)
-
+        response = query_tech_trends(query)
         return response
 
     def get_current_prompt(self, query: str, max_context_examples: int = None) -> str:
