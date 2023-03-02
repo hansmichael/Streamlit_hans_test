@@ -73,6 +73,12 @@ intros = {
     "noam": "Ask me questions about the video `Noam Brown: AI vs Humans in Poker and Games of Strategic Negotiation | Lex Fridman Podcast #344`"
 }
 
+names = {
+    "andrej": "Adrej Karpathy",
+    "noam": "Noam Brown",
+    "rana": "Rana el Kaliouby"
+}
+
 
 MAX_GENERATE_TOKENS = 2048
 TOKENS_PER_REQUEST = 100
@@ -472,7 +478,7 @@ class PromptChatbot(Chatbot):
             for i, (idx,sim) in enumerate(similarity):
                 if i > 50:
                     break
-                result.append(df.iloc[idx]['intent'])
+                result.append(f"Lex: {df.iloc[idx]['query']}\n{names[self.persona_name]}:{df.iloc[idx]['intent']}")
                 if verbose: 
                     print("context:", df.iloc[idx]['intent'])
             if verbose: 
