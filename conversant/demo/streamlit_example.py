@@ -310,7 +310,7 @@ if __name__ == "__main__":
                 with st.expander("Prompt (JSON)"):
                     ui.draw_prompt_view(json=True)
 
-                with st.expander("Prompt (string)", expanded=True):
+                with st.expander("Prompt (string)"):
                     ui.draw_prompt_view(json=False)
 
             # Draw the message input field and a disclaimer.
