@@ -485,16 +485,12 @@ class PromptChatbot(Chatbot):
             generate_input = f"{initial_statement}{generate}\n\n{prompt}{new_query}\nif the context above does not include the answer, then say: 'Sorry, I could not find the answer to that'"
 
             # pass the top 10 result through generate to get a more formated answer
+            kwargs_ = kwargs.copy()
+            kwargs_["prompt"] = generate_input
             response = generated_object = co.generate(
-                model='command-xlarge-nightly',
-                prompt=generate_input,
-                max_tokens=150,
-                temperature=0.5,
+                **kwargs_,
                 k=0,
                 p=0.75,
-                frequency_penalty=0,
-                presence_penalty=0,
-                stop_sequences=[],
         )
             if verbose:
                 print('Result using generate:') 
