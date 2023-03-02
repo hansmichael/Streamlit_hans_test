@@ -5,8 +5,8 @@
     },
     "client_config": {
         "model": "command-xlarge-nightly",
-        "max_tokens": 100,
-        "temperature": 0.75,
+        "max_tokens": 150,
+        "temperature": 0.5,
         "stop_sequences": [
             "\nLex:"
         ]
