@@ -29,21 +29,23 @@ import pandas as pd
 import numpy as np
 HERE = Path(__file__).absolute().parent
 
-df_orig = pd.read_csv(HERE / "andrej.csv")
-is_lex = df_orig["speaker"].str.startswith("Lex")
-df = pd.concat([
-    df_orig[is_lex].rename(columns={"speech": "query"}).reset_index()[["query", "document"]],
-    df_orig[~is_lex].rename(columns={"speech": "intent"}).drop(columns=["speaker"]).reset_index()[["intent"]]
-], axis=1).sort_index()
-
-# Get text embeddings
 def get_embeddings(texts,model='multilingual-22-12'):
     output = co.embed(
                     model=model,
                     texts=texts)
     return output.embeddings
 
-df['intent_embeds'] = get_embeddings(df['intent'].tolist())
+def get_df(csv_path: Path):
+
+    df_orig = pd.read_csv(csv_path)
+    is_lex = df_orig["speaker"].str.startswith("Lex")
+    df = pd.concat([
+        df_orig[is_lex].rename(columns={"speech": "query"}).reset_index()[["query", "document"]],
+        df_orig[~is_lex].rename(columns={"speech": "intent"}).drop(columns=["speaker"]).reset_index()[["intent"]]
+    ], axis=1).sort_index()
+
+    df['intent_embeds'] = get_embeddings(df['intent'].tolist())
+    return df
 
 def get_similarity(target,candidates):
     # Turn list into array
@@ -58,6 +60,12 @@ def get_similarity(target,candidates):
 
     # Return similarity scores
     return similarity_scores
+
+dfs = {
+    "andrej": get_df(HERE / "andrej.csv"),
+    "noam": get_df(HERE / "noam.csv"),
+    "rana": get_df(HERE / "rana.csv")
+}
 
 
 MAX_GENERATE_TOKENS = 2048
@@ -432,6 +440,7 @@ class PromptChatbot(Chatbot):
             Interaction: Dictionary of query and generated LLM response
         """      
         co = self.co
+        df = dfs[self.persona_name]
         
         def query_tech_trends(new_query, verbose=False):
         #new_query = "Does Dalibor like guns?"
