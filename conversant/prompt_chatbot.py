@@ -490,7 +490,9 @@ class PromptChatbot(Chatbot):
             #takes the the top 10 result from rerank and formats it
             generate = "\n".join((result.document["text"].strip() for result in rerank_results))
 
-            generate_input = f"{initial_statement}{generate}\n\n{prompt}{new_query}\nif the context above does not include the answer, then say: 'Sorry, I could not find the answer to that'"
+            generate_input = f"Here are the facts:{generate}\n\nAnswer the last question based on the facts above and the conversation below. If the context does not include the answer, then say: 'Sorry, I could not find the answer to that'{new_query}"
+
+            print("***INPUT***", generate_input)
 
             # pass the top 10 result through generate to get a more formated answer
             kwargs_ = kwargs.copy()
@@ -510,7 +512,7 @@ class PromptChatbot(Chatbot):
                 response = generated_object.generations[0].text
                 return response
 
-        response = query_tech_trends(query)
+        response = query_tech_trends(kwargs.get("prompt") or query)
         return response
 
     def get_current_prompt(self, query: str, max_context_examples: int = None) -> str:
