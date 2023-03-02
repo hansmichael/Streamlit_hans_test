@@ -67,6 +67,12 @@ dfs = {
     "rana": get_df(HERE / "rana.csv")
 }
 
+intros = {
+    "andrej": "Ask me questions about the video `Andrej Karpathy: Tesla AI, Self-Driving, Optimus, Aliens, and AGI | Lex Fridman Podcast #333`",
+    "rana": "Ask me questions about the video `Rana el Kaliouby: Emotion AI, Social Robots, and Self-Driving Cars | Lex Fridman Podcast #322`",
+    "noam": "Ask me questions about the video `Noam Brown: AI vs Humans in Poker and Games of Strategic Negotiation | Lex Fridman Podcast #344`"
+}
+
 
 MAX_GENERATE_TOKENS = 2048
 TOKENS_PER_REQUEST = 100
@@ -340,6 +346,8 @@ class PromptChatbot(Chatbot):
         while num_requests_made < max_requests and not reply_complete:
             generated_object = future.result()
             partial_response = generated_object.generations[0].text
+            if query == "Hello":
+                partial_response = intros[self.persona_name]
 
             # If the partial response is an empty string, then this iteration is a no-op
             # (we indicate that the reply is completely generated).
